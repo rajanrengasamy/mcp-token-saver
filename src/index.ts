@@ -24,6 +24,14 @@ function asOptionalPositiveInteger(value: unknown, fallback: number): number {
   return fallback;
 }
 
+function asRequiredString(value: unknown, argumentName: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`Argument '${argumentName}' must be a non-empty string.`);
+  }
+
+  return value;
+}
+
 async function main(): Promise<void> {
   const { config, scanOnly } = resolveConfig(process.cwd());
 
@@ -70,6 +78,61 @@ async function main(): Promise<void> {
           },
         },
         {
+          name: "get_context",
+          description:
+            "Return token-budget-aware transitive context using breadth-first dependency traversal.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              file: {
+                type: "string",
+                description: "Path to a file relative to project root.",
+              },
+              maxTokens: {
+                type: "number",
+                description: "Maximum token budget to include (default: 10000).",
+              },
+            },
+            required: ["file"],
+          },
+        },
+        {
+          name: "search_codebase",
+          description: "Search indexed code using BM25 ranking and return top matching snippets.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                description: "Search query text.",
+              },
+              maxResults: {
+                type: "number",
+                description: "Maximum results to return (default: 10).",
+              },
+              maxTokens: {
+                type: "number",
+                description: "Maximum token budget for returned snippets (default: 2000).",
+              },
+            },
+            required: ["query"],
+          },
+        },
+        {
+          name: "find_symbol",
+          description: "Find exported function/class/interface/const symbols by exact name.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              name: {
+                type: "string",
+                description: "Exported symbol name to look up.",
+              },
+            },
+            required: ["name"],
+          },
+        },
+        {
           name: "get_project_tree",
           description:
             "Return a compact directory tree for the project (file and folder names only, no file content).",
@@ -87,6 +150,14 @@ async function main(): Promise<void> {
             },
           },
         },
+        {
+          name: "get_stats",
+          description: "Return index statistics: files indexed, total tokens, largest files, language breakdown.",
+          inputSchema: {
+            type: "object",
+            properties: {},
+          },
+        },
       ],
     };
   });
@@ -94,12 +165,7 @@ async function main(): Promise<void> {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (request.params.name === "get_file_context") {
       const args = asObject(request.params.arguments);
-      const file = args.file;
-
-      if (typeof file !== "string" || file.trim().length === 0) {
-        throw new Error("Argument 'file' must be a non-empty string.");
-      }
-
+      const file = asRequiredString(args.file, "file");
       const context = graph.getFileContext(file);
 
       return {
@@ -107,6 +173,54 @@ async function main(): Promise<void> {
           {
             type: "text",
             text: JSON.stringify(context, null, 2),
+          },
+        ],
+      };
+    }
+
+    if (request.params.name === "get_context") {
+      const args = asObject(request.params.arguments);
+      const file = asRequiredString(args.file, "file");
+      const maxTokens = asOptionalPositiveInteger(args.maxTokens, 10_000);
+      const context = graph.getContext(file, maxTokens);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(context, null, 2),
+          },
+        ],
+      };
+    }
+
+    if (request.params.name === "search_codebase") {
+      const args = asObject(request.params.arguments);
+      const query = asRequiredString(args.query, "query");
+      const maxResults = asOptionalPositiveInteger(args.maxResults, 10);
+      const maxTokens = asOptionalPositiveInteger(args.maxTokens, 2_000);
+      const results = graph.searchCodebase(query, maxResults, maxTokens);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(results, null, 2),
+          },
+        ],
+      };
+    }
+
+    if (request.params.name === "find_symbol") {
+      const args = asObject(request.params.arguments);
+      const name = asRequiredString(args.name, "name");
+      const matches = graph.findSymbol(name);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ name, matches }, null, 2),
           },
         ],
       };
@@ -123,6 +237,18 @@ async function main(): Promise<void> {
           {
             type: "text",
             text: JSON.stringify(tree, null, 2),
+          },
+        ],
+      };
+    }
+
+    if (request.params.name === "get_stats") {
+      const stats = graph.getStats();
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(stats, null, 2),
           },
         ],
       };

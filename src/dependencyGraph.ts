@@ -3,20 +3,61 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import chokidar, { FSWatcher } from "chokidar";
 import { minimatch } from "minimatch";
-import { parseFileForDeps } from "./parser.js";
-import { FileContext, GraphNode, ProjectTreeResult, TokenSaverConfig } from "./types.js";
+import { hashContent } from "./fileHash.js";
+import { parseSourceForDeps } from "./parser.js";
+import { BM25Searcher } from "./search.js";
+import {
+  FileContext,
+  GraphNode,
+  IndexingStats,
+  ProjectTreeResult,
+  SearchResponse,
+  StatsResult,
+  SymbolMatch,
+  TokenAwareContextResult,
+  TokenSaverConfig,
+} from "./types.js";
 
 const CODE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"];
 
+const LANGUAGE_BY_EXTENSION: Record<string, string> = {
+  ".ts": "TypeScript",
+  ".tsx": "TypeScript",
+  ".mts": "TypeScript",
+  ".cts": "TypeScript",
+  ".js": "JavaScript",
+  ".jsx": "JavaScript",
+  ".mjs": "JavaScript",
+  ".cjs": "JavaScript",
+};
+
 function normalizePath(filePath: string): string {
   return path.resolve(filePath);
+}
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+function toSafePositiveInt(value: number | undefined, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return fallback;
+  }
+
+  return Math.floor(value);
 }
 
 export class DependencyGraph {
   private readonly projectRoot: string;
   private readonly ignorePatterns: string[];
   private readonly nodes = new Map<string, GraphNode>();
+  private readonly searcher = new BM25Searcher();
   private watcher?: FSWatcher;
+  private lastIndexingStats: IndexingStats = {
+    totalFiles: 0,
+    parsedFiles: 0,
+    skippedFiles: 0,
+  };
 
   constructor(config: TokenSaverConfig) {
     this.projectRoot = normalizePath(config.projectRoot);
@@ -112,28 +153,63 @@ export class DependencyGraph {
 
   async buildInitialGraph(): Promise<void> {
     const files = await this.walkDirectory(this.projectRoot);
+    const fileSet = new Set(files);
+
+    let parsedFiles = 0;
+    let skippedFiles = 0;
+
     for (const file of files) {
-      this.updateFile(file);
+      const result = this.updateFile(file, true);
+      if (result === "parsed") {
+        parsedFiles += 1;
+      } else if (result === "skipped") {
+        skippedFiles += 1;
+      }
     }
+
+    for (const existingFile of [...this.nodes.keys()]) {
+      if (!fileSet.has(existingFile)) {
+        this.removeFile(existingFile);
+      }
+    }
+
+    this.lastIndexingStats = {
+      totalFiles: files.length,
+      parsedFiles,
+      skippedFiles,
+    };
   }
 
-  updateFile(filePath: string): void {
+  updateFile(filePath: string, skipIfUnchanged = false): "parsed" | "skipped" | "ignored" | "removed" {
     const absoluteFilePath = normalizePath(filePath);
 
     if (this.isIgnored(absoluteFilePath) || !this.isCodeFile(absoluteFilePath)) {
-      return;
+      return "ignored";
     }
 
     if (!fs.existsSync(absoluteFilePath)) {
       this.removeFile(absoluteFilePath);
-      return;
+      return "removed";
+    }
+
+    let content: string;
+    try {
+      content = fs.readFileSync(absoluteFilePath, "utf8");
+    } catch {
+      return "ignored";
+    }
+
+    const hash = hashContent(content);
+    const existing = this.nodes.get(absoluteFilePath);
+    if (skipIfUnchanged && existing && existing.hash === hash) {
+      return "skipped";
     }
 
     let parsed;
     try {
-      parsed = parseFileForDeps(absoluteFilePath);
+      parsed = parseSourceForDeps(content);
     } catch {
-      return;
+      return "ignored";
     }
 
     const resolvedDependencies = parsed.imports
@@ -144,13 +220,21 @@ export class DependencyGraph {
       filePath: absoluteFilePath,
       dependencies: new Set(resolvedDependencies),
       exports: new Set(parsed.exports),
+      symbols: parsed.symbols,
+      hash,
+      tokenEstimate: estimateTokens(content),
+      contentLength: content.length,
       updatedAt: Date.now(),
     });
+
+    this.searcher.indexDocument(absoluteFilePath, content);
+    return "parsed";
   }
 
   removeFile(filePath: string): void {
     const absoluteFilePath = normalizePath(filePath);
     this.nodes.delete(absoluteFilePath);
+    this.searcher.removeDocument(absoluteFilePath);
 
     for (const node of this.nodes.values()) {
       if (node.dependencies.has(absoluteFilePath)) {
@@ -171,8 +255,8 @@ export class DependencyGraph {
     });
 
     this.watcher
-      .on("add", (file) => this.updateFile(path.resolve(this.projectRoot, file)))
-      .on("change", (file) => this.updateFile(path.resolve(this.projectRoot, file)))
+      .on("add", (file) => this.updateFile(path.resolve(this.projectRoot, file), true))
+      .on("change", (file) => this.updateFile(path.resolve(this.projectRoot, file), true))
       .on("unlink", (file) => this.removeFile(path.resolve(this.projectRoot, file)));
   }
 
@@ -219,7 +303,7 @@ export class DependencyGraph {
     const absoluteFile = this.resolveRequestedFile(file);
 
     if (!this.nodes.has(absoluteFile)) {
-      this.updateFile(absoluteFile);
+      this.updateFile(absoluteFile, true);
     }
 
     const requestedContent = fs.readFileSync(absoluteFile, "utf8");
@@ -239,6 +323,195 @@ export class DependencyGraph {
         content: requestedContent,
       },
       directDependencies,
+    };
+  }
+
+  getContext(file: string, maxTokens = 10_000): TokenAwareContextResult {
+    const safeMaxTokens = toSafePositiveInt(maxTokens, 10_000);
+    const absoluteFile = this.resolveRequestedFile(file);
+
+    if (!this.nodes.has(absoluteFile)) {
+      this.updateFile(absoluteFile, true);
+    }
+
+    const queue: Array<{ filePath: string; depth: number }> = [{ filePath: absoluteFile, depth: 0 }];
+    const visited = new Set<string>([absoluteFile]);
+
+    const includedFiles: TokenAwareContextResult["includedFiles"] = [];
+    const excludedFiles: TokenAwareContextResult["excludedFiles"] = [];
+
+    let totalTokens = 0;
+    let truncated = false;
+
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (!item) {
+        continue;
+      }
+
+      const { filePath: currentFile, depth } = item;
+
+      if (!fs.existsSync(currentFile) || !fs.statSync(currentFile).isFile()) {
+        excludedFiles.push({
+          path: this.relativeToRoot(currentFile),
+          reason: "File is missing.",
+          tokens: 0,
+          depth,
+        });
+        continue;
+      }
+
+      if (!this.nodes.has(currentFile)) {
+        this.updateFile(currentFile, true);
+      }
+
+      const content = fs.readFileSync(currentFile, "utf8");
+      const tokens = estimateTokens(content);
+
+      if (totalTokens + tokens > safeMaxTokens) {
+        truncated = true;
+        excludedFiles.push({
+          path: this.relativeToRoot(currentFile),
+          reason: `Token budget exceeded (${totalTokens} + ${tokens} > ${safeMaxTokens}).`,
+          tokens,
+          depth,
+        });
+
+        for (const pending of queue) {
+          excludedFiles.push({
+            path: this.relativeToRoot(pending.filePath),
+            reason: "Not processed because token budget was exhausted.",
+            tokens: 0,
+            depth: pending.depth,
+          });
+        }
+
+        break;
+      }
+
+      includedFiles.push({
+        path: this.relativeToRoot(currentFile),
+        content,
+        tokens,
+        depth,
+      });
+      totalTokens += tokens;
+
+      const node = this.nodes.get(currentFile);
+      const dependencies = [...(node?.dependencies ?? [])].sort((a, b) => a.localeCompare(b));
+      for (const dep of dependencies) {
+        if (visited.has(dep)) {
+          continue;
+        }
+
+        visited.add(dep);
+        queue.push({ filePath: dep, depth: depth + 1 });
+      }
+    }
+
+    return {
+      requestedPath: this.relativeToRoot(absoluteFile),
+      maxTokens: safeMaxTokens,
+      totalTokens,
+      includedFiles,
+      excludedFiles,
+      truncated,
+    };
+  }
+
+  searchCodebase(query: string, maxResults = 10, maxTokens = 2_000): SearchResponse {
+    const safeMaxResults = toSafePositiveInt(maxResults, 10);
+    const safeMaxTokens = toSafePositiveInt(maxTokens, 2_000);
+    const searchResults = this.searcher.search(query, safeMaxResults);
+
+    const results: SearchResponse["results"] = [];
+    let usedTokens = 0;
+    let truncated = false;
+
+    for (const result of searchResults) {
+      const relativePath = this.relativeToRoot(result.filePath);
+      const snippet = result.snippet;
+      const tokens = estimateTokens(`${relativePath}\n${snippet}`);
+
+      if (usedTokens + tokens > safeMaxTokens) {
+        truncated = true;
+        break;
+      }
+
+      usedTokens += tokens;
+      results.push({
+        path: relativePath,
+        score: Number(result.score.toFixed(6)),
+        snippet,
+        tokens,
+      });
+    }
+
+    return {
+      query,
+      maxResults: safeMaxResults,
+      maxTokens: safeMaxTokens,
+      totalMatches: searchResults.length,
+      truncated,
+      results,
+    };
+  }
+
+  findSymbol(name: string): SymbolMatch[] {
+    const needle = name.trim().toLowerCase();
+    if (needle.length === 0) {
+      return [];
+    }
+
+    const matches: SymbolMatch[] = [];
+
+    const sortedNodes = [...this.nodes.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    for (const [filePath, node] of sortedNodes) {
+      for (const symbol of node.symbols) {
+        if (symbol.name.toLowerCase() === needle) {
+          matches.push({
+            name: symbol.name,
+            path: this.relativeToRoot(filePath),
+            line: symbol.line,
+            type: symbol.type,
+          });
+        }
+      }
+    }
+
+    return matches.sort((a, b) => {
+      if (a.path === b.path) {
+        return a.line - b.line;
+      }
+      return a.path.localeCompare(b.path);
+    });
+  }
+
+  getStats(): StatsResult {
+    const filesIndexed = this.nodes.size;
+    const totalTokens = [...this.nodes.values()].reduce((sum, node) => sum + node.tokenEstimate, 0);
+
+    const largestFiles = [...this.nodes.values()]
+      .sort((a, b) => b.contentLength - a.contentLength)
+      .slice(0, 10)
+      .map((node) => ({
+        path: this.relativeToRoot(node.filePath),
+        tokens: node.tokenEstimate,
+        bytes: Buffer.byteLength(fs.readFileSync(node.filePath, "utf8"), "utf8"),
+      }));
+
+    const languageBreakdown: Record<string, number> = {};
+    for (const node of this.nodes.values()) {
+      const ext = path.extname(node.filePath).toLowerCase();
+      const language = LANGUAGE_BY_EXTENSION[ext] ?? "Other";
+      languageBreakdown[language] = (languageBreakdown[language] ?? 0) + 1;
+    }
+
+    return {
+      filesIndexed,
+      totalTokens,
+      largestFiles,
+      languageBreakdown,
     };
   }
 
@@ -302,6 +575,10 @@ export class DependencyGraph {
       truncated,
       lines,
     };
+  }
+
+  getIndexingStats(): IndexingStats {
+    return { ...this.lastIndexingStats };
   }
 
   toSummary(): { filesTracked: number; projectRoot: string } {
