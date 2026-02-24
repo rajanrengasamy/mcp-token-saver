@@ -1,0 +1,97 @@
+# Build Log — mcp-token-saver
+
+## 1) Timestamps
+- Build start: 2026-02-24 02:15:00 AEDT
+- Build end: 2026-02-24 02:20:08 AEDT
+
+## 2) What was implemented
+Implemented an MVP TypeScript MCP server for token-efficient context serving:
+
+- MCP stdio server using `@modelcontextprotocol/sdk`
+- Tool: `get_file_context`
+  - Input: `{ "file": "<relative path>" }`
+  - Output: requested file content + direct internal dependency file contents
+- AST parsing using `@typescript-eslint/typescript-estree`
+  - Parses imports/exports (plus `require()`/dynamic import patterns)
+- In-memory dependency graph
+  - Initial full scan of TS/JS files
+  - Incremental updates with `chokidar` file watcher (add/change/unlink)
+- Config loading via:
+  - CLI flags (`--project`, `--ignore`, `--config`, `--scan-only`)
+  - Env vars (`PROJECT_ROOT`, `IGNORE_PATTERNS`)
+  - Config file (`token-saver.config.json`)
+- Documentation + Claude Desktop integration example in README
+- Included a small test TypeScript project and automated tests
+
+## 3) Final file structure
+(omitting `node_modules/`)
+
+- `package.json`
+- `package-lock.json`
+- `tsconfig.json`
+- `.gitignore`
+- `README.md`
+- `token-saver.config.example.json`
+- `build_log.txt`
+- `src/`
+  - `config.ts`
+  - `dependencyGraph.ts`
+  - `index.ts`
+  - `parser.ts`
+  - `types.ts`
+- `test/`
+  - `dependencyGraph.test.ts`
+  - `test-project/src/controllers/UserController.ts`
+  - `test-project/src/services/UserService.ts`
+  - `test-project/src/models/User.ts`
+  - `test-project/src/utils/db.ts`
+- `dist/` (compiled JS)
+  - `src/*.js`
+  - `test/dependencyGraph.test.js`
+
+## 4) How to run/demo
+
+Install + build:
+```bash
+cd /Users/rajan/Library/CloudStorage/Dropbox/Projects/moltbot/labs/overnight-pipeline/runs/20260224-020010/projects/mcp-token-saver
+npm install
+npm run build
+```
+
+Run MCP server:
+```bash
+node dist/src/index.js --project /absolute/path/to/your/ts-js-project
+```
+
+Quick scan mode (non-server):
+```bash
+node dist/src/index.js --project ./test/test-project --scan-only
+```
+
+Claude Desktop config example is included in `README.md`.
+
+## 5) Test/check commands executed
+Executed successfully:
+
+```bash
+npm install
+npm run build
+npm run test
+npm run scan
+node --input-type=module -e "import { DependencyGraph } from './dist/src/dependencyGraph.js'; const g = new DependencyGraph({projectRoot:'./test/test-project', ignorePatterns:['**/node_modules/**']}); await g.buildInitialGraph(); const c = g.getFileContext('src/services/UserService.ts'); console.log(c.requestedFile.path, c.directDependencies.map(d=>d.path).join(','));"
+```
+
+Observed test results:
+- 2/2 tests passing
+- scan summary returned `filesTracked: 4`
+
+## 6) Known issues / shortcuts / missing pieces
+- File-level dependency graph only (no function-level call graph)
+- No persistence (in-memory only; no SQLite yet)
+- No TS path alias resolution (`paths` from tsconfig not handled)
+- Internal dependency resolution focused on relative/absolute local imports
+- No token usage analytics/reporting yet
+- No graph visualization UI
+
+## 7) Final status
+**SUCCESS**

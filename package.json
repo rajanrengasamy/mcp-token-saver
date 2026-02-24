@@ -1,0 +1,38 @@
+{
+  "name": "mcp-token-saver",
+  "version": "0.1.0",
+  "description": "MCP server that serves file context with direct dependencies to reduce token usage",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "npm run build && node --test dist/test/**/*.test.js",
+    "scan": "node dist/src/index.js --project ./test/test-project --scan-only"
+  },
+  "keywords": [
+    "mcp",
+    "typescript",
+    "context",
+    "ast"
+  ],
+  "author": "Rajan Rengasamy",
+  "license": "MIT",
+  "homepage": "https://github.com/rajanrengasamy/mcp-token-saver#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rajanrengasamy/mcp-token-saver.git"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.4",
+    "@typescript-eslint/typescript-estree": "^8.44.0",
+    "chokidar": "^4.0.3",
+    "minimatch": "^10.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

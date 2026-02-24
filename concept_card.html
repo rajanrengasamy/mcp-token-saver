@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ARC Concept Card v2</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --surface: #101114;
+      --surface-2: #15171b;
+      --line: #2a2d34;
+      --text: #f5f7fa;
+      --text-muted: #a7afba;
+      --accent: #00e5ff;
+      --good: #37d67a;
+      --warn: #ffd54a;
+      --bad: #ff5a5f;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      width: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+    }
+
+    body {
+      padding: 10px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 540px;
+      margin: 0 auto;
+      border: 2px solid var(--line);
+      background: var(--surface);
+      padding: 16px;
+    }
+
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--line);
+    }
+
+    .meta .build-id {
+      color: var(--accent);
+      font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+    }
+
+    .title-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 14px;
+      align-items: start;
+      margin-bottom: 12px;
+    }
+
+    .project-name {
+      font-size: 34px;
+      line-height: 1.05;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      text-transform: uppercase;
+      color: var(--text);
+      word-break: break-word;
+    }
+
+    .composite {
+      border: 2px solid var(--accent);
+      background: #0b0f12;
+      min-width: 118px;
+      padding: 8px 10px;
+      text-align: right;
+      align-self: end;
+    }
+
+    .composite-label {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 2px;
+    }
+
+    .composite-value {
+      font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+      font-size: 40px;
+      line-height: 0.95;
+      font-weight: 900;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    .composite-value .suffix {
+      font-size: 20px;
+      color: #9defff;
+      font-weight: 800;
+      margin-left: 2px;
+    }
+
+    .description {
+      font-size: 22px;
+      line-height: 1.3;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 14px;
+    }
+
+    .section {
+      border-top: 2px solid var(--line);
+      padding-top: 12px;
+      margin-top: 12px;
+    }
+
+    .section-label {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .score-list .score-item {
+      margin-bottom: 10px;
+    }
+
+    .score-list .score-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .score-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 4px;
+      gap: 8px;
+    }
+
+    .score-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .score-value {
+      font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--accent);
+    }
+
+    .score-bar {
+      width: 100%;
+      height: 12px;
+      background: #0b0d10;
+      border: 1px solid #343842;
+    }
+
+    .score-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #00e5ff 0%, #00b8d4 100%);
+    }
+
+    .tech-stack {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tech-badge {
+      display: inline-block;
+      padding: 5px 8px;
+      border: 1px solid #3b3f48;
+      background: var(--surface-2);
+      color: #d5dde8;
+      font-size: 12px;
+      line-height: 1.1;
+      font-weight: 700;
+      font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+    }
+
+    .features .feature-item {
+      position: relative;
+      padding-left: 16px;
+      margin-bottom: 8px;
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.35;
+      font-weight: 500;
+    }
+
+    .features .feature-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .features .feature-item::before {
+      content: "■";
+      position: absolute;
+      left: 0;
+      top: 0;
+      color: var(--accent);
+      font-size: 10px;
+      line-height: 1.8;
+    }
+
+    .status-source-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .status {
+      border: 2px solid var(--line);
+      border-left: 8px solid {{STATUS_BORDER_COLOR}};
+      background: #0e1116;
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status .label,
+    .source .label {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .status .value {
+      font-size: 18px;
+      line-height: 1.1;
+      font-weight: 900;
+      letter-spacing: 0.02em;
+      color: {{STATUS_COLOR}};
+      text-transform: uppercase;
+      text-align: right;
+    }
+
+    .source {
+      border: 2px solid var(--line);
+      background: #0f1217;
+      padding: 8px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .source .value {
+      font-size: 14px;
+      line-height: 1.3;
+      font-weight: 600;
+      color: #dbe2eb;
+      text-align: right;
+    }
+
+    @media (max-width: 460px) {
+      .project-name {
+        font-size: 30px;
+      }
+
+      .composite {
+        min-width: 108px;
+      }
+
+      .composite-value {
+        font-size: 36px;
+      }
+
+      .description {
+        font-size: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <article class="card" data-composite-score="">
+    <div class="meta">
+      <span class="build-id">{{BUILD_ID}}</span>
+      <span>{{TIMESTAMP}}</span>
+    </div>
+
+    <div class="title-row">
+      <h1 class="project-name">{{PROJECT_NAME}}</h1>
+      <div class="composite" aria-label="Composite score">
+        <div class="composite-label">Composite</div>
+        <div class="composite-value"><span data-composite-value>—</span><span class="suffix">/10</span></div>
+      </div>
+    </div>
+
+    <p class="description">{{DESCRIPTION}}</p>
+
+    <section class="section">
+      <div class="section-label">Score Breakdown</div>
+      <div class="score-list">
+        {{SCORE_SECTION}}
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-label">Tech Stack</div>
+      <div class="tech-stack">
+                    <span class="tech-badge">& Timeline</span>
+                </div>
+    </section>
+
+    <section class="section features">
+      <div class="section-label">What It Builds</div>
+      {{FEATURES_SECTION}}
+    </section>
+
+    <div class="status-source-row">
+      <div class="status">
+        <span class="label">Build Status</span>
+        <span class="value">{{STATUS_VALUE}}</span>
+      </div>
+
+      <div class="source" id="sourceRow">
+        <span class="label">Source</span>
+        <span class="value" id="sourceValue">{{SOURCE_INFO}}</span>
+      </div>
+    </div>
+  </article>
+
+  <script>
+    (function () {
+      var compositeNode = document.querySelector('[data-composite-value]');
+      var cardNode = document.querySelector('.card');
+      if (compositeNode) {
+        var explicit = cardNode ? cardNode.getAttribute('data-composite-score') : '';
+        var composite = parseFloat(explicit || '');
+
+        if (!isFinite(composite)) {
+          var rawValues = Array.from(document.querySelectorAll('.score-item .score-value'))
+            .map(function (el) {
+              var text = (el.textContent || '').trim();
+              var match = text.match(/\d+(?:\.\d+)?/);
+              return match ? parseFloat(match[0]) : NaN;
+            })
+            .filter(function (v) {
+              return isFinite(v);
+            });
+
+          if (rawValues.length) {
+            var sum = rawValues.reduce(function (a, b) { return a + b; }, 0);
+            composite = (sum / rawValues.length) / 10;
+          }
+        }
+
+        if (isFinite(composite)) {
+          compositeNode.textContent = composite.toFixed(1);
+        }
+      }
+
+      var sourceValue = document.getElementById('sourceValue');
+      var sourceRow = document.getElementById('sourceRow');
+      if (sourceValue && sourceRow) {
+        var sourceText = (sourceValue.textContent || '').trim();
+        if (!sourceText || sourceText === '{{SOURCE_INFO}}') {
+          sourceRow.style.display = 'none';
+        }
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "_comment": "Copy this file to token-saver.config.json and update values for your project.",
+  "projectRoot": "./",
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.git/**",
+    "**/.next/**",
+    "**/coverage/**"
+  ],
+  "_comment_ignorePatterns": "Use glob patterns to skip generated/vendor folders so indexing stays fast."
+}
